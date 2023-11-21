@@ -218,12 +218,6 @@ def process_data(data, output_csv):
 
     progress_bar.close()
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(description='Process data and extract features.')
-    parser.add_argument('input', nargs='?', default='', help='Path to the input CSV file containing data')
-    parser.add_argument('output', nargs='?', default='', help='Full path and name of the output CSV file')
-    return parser.parse_args()
-
 def ensure_output_directory(output):
     output_directory = os.path.dirname(output)
     if not os.path.exists(output_directory):
@@ -236,6 +230,10 @@ def ensure_output_directory(output):
             csv_writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             csv_writer.writeheader()
 
+def check_file_existence(input):
+    if not os.path.exists(input):
+        print(f"Error: The input file '{input}' does not exist. Please provide the file or call the program again with the argument 'download-dataset' ")
+        exit(1)
 
 def initialize():
     nltk.download('punkt')
@@ -244,23 +242,32 @@ def initialize():
     global gpt2_model
     gpt2_model = "gpt2"
 
-def download_and_extract_gpt_wiki_intro(output_directory):
+def download_and_extract_gpt_wiki_intro(output_path):
     url = "https://huggingface.co/datasets/aadityaubhat/GPT-wiki-intro/resolve/main/GPT-wiki-intro.csv.zip?download=true"
 
     zip_file_name = "GPT-wiki-intro.csv.zip"
 
-    full_path = os.path.join(output_directory, zip_file_name)
+    full_path = os.path.join(os.getcwd(), zip_file_name)
 
     response = requests.get(url)
     with open(full_path, "wb") as zip_file:
         zip_file.write(response.content)
 
     with ZipFile(full_path, "r") as zip_ref:
-        zip_ref.extractall(output_directory)
+        zip_ref.extractall(output_path)
 
     os.remove(full_path)
 
     print("GPT-wiki-intro.csv.zip downloaded and extracted.")
+    print(full_path)
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Process data and extract features.')
+    parser.add_argument('-i', '--input', nargs='?', default='', help='Path to the input CSV file containing data')
+    parser.add_argument('-o', '--output', nargs='?', default='', help='Full path and name of the output CSV file')
+    parser.add_argument('--download-dataset', action='store_true', help='Download and extract the GPT-wiki-intro dataset')
+    return parser.parse_args()
+
 
 def main():
     args = parse_arguments()
@@ -268,15 +275,22 @@ def main():
     initialize()
     print("Initializing...")
 
-    input_directory = args.input
+    if args.download_dataset:
+        download_and_extract_gpt_wiki_intro(os.path.dirname(args.output))
+        print("Input dataset downloaded and extracted.")
+    else:
+        check_file_existence(args.input)
 
-    input_csv = os.path.join(input_directory, "GPT-wiki-intro.csv")
-    if not os.path.exists(input_csv):
-        download_and_extract_gpt_wiki_intro(input_directory)
+    input_file_path = args.input
 
     output = args.output
     ensure_output_directory(output)
     print("Input and Output directories checked.")
+
+    input_csv = input_file_path
+    if not os.path.exists(input_csv):
+        print(f"Error: The input CSV file '{input_csv}' does not exist. Please provide the correct file path.")
+        exit(1)
 
     with open(input_csv, 'r', encoding='utf-8') as csvfile:
         data = list(csv.DictReader(csvfile))
