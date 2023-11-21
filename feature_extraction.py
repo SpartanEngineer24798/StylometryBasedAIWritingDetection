@@ -17,6 +17,9 @@ from nltk.tokenize import word_tokenize, sent_tokenize
 from spacy import util
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
 
+from zipfile import ZipFile
+import requests
+
 class PerplexityCalculator:
     STRIDE = 512
     NLP_MAX_LENGTH = 200000
@@ -217,14 +220,9 @@ def process_data(data, output_csv):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Process data and extract features.')
-    parser.add_argument('input', help='Path to the input CSV file containing data')
-    parser.add_argument('output', help='Full path and name of the output CSV file')
+    parser.add_argument('input', nargs='?', default='', help='Path to the input CSV file containing data')
+    parser.add_argument('output', nargs='?', default='', help='Full path and name of the output CSV file')
     return parser.parse_args()
-
-def check_file_existence(input):
-    if not os.path.exists(input):
-        print(f"Error: The input file '{input}' does not exist.")
-        exit(1)
 
 def ensure_output_directory(output):
     output_directory = os.path.dirname(output)
@@ -246,24 +244,46 @@ def initialize():
     global gpt2_model
     gpt2_model = "gpt2"
 
+def download_and_extract_gpt_wiki_intro(output_directory):
+    url = "https://huggingface.co/datasets/aadityaubhat/GPT-wiki-intro/resolve/main/GPT-wiki-intro.csv.zip?download=true"
+
+    zip_file_name = "GPT-wiki-intro.csv.zip"
+
+    full_path = os.path.join(output_directory, zip_file_name)
+
+    response = requests.get(url)
+    with open(full_path, "wb") as zip_file:
+        zip_file.write(response.content)
+
+    with ZipFile(full_path, "r") as zip_ref:
+        zip_ref.extractall(output_directory)
+
+    os.remove(full_path)
+
+    print("GPT-wiki-intro.csv.zip downloaded and extracted.")
+
 def main():
     args = parse_arguments()
 
     initialize()
     print("Initializing...")
 
-    input = args.input
+    input_directory = args.input
+
+    input_csv = os.path.join(input_directory, "GPT-wiki-intro.csv")
+    if not os.path.exists(input_csv):
+        download_and_extract_gpt_wiki_intro(input_directory)
+
     output = args.output
-    check_file_existence(input)
     ensure_output_directory(output)
     print("Input and Output directories checked.")
 
-    with open(input, 'r', encoding='utf-8') as csvfile:
+    with open(input_csv, 'r', encoding='utf-8') as csvfile:
         data = list(csv.DictReader(csvfile))
 
     print("Input CSV loaded. Beginning Data Processing")
 
-    process_data(data,output)
+    process_data(data, output)
 
     print("Process finished. Exiting...")
 
