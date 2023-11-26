@@ -20,6 +20,8 @@ from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from zipfile import ZipFile
 import requests
 
+from concurrent.futures import ProcessPoolExecutor
+
 class PerplexityCalculator:
     STRIDE = 512
     NLP_MAX_LENGTH = 200000
@@ -156,6 +158,9 @@ def sanitize_title(title):
     return sanitized_title
 
 def process_data(data, output_csv):
+    ####################
+    #counter = 0
+
     total_entries = len(data)
 
     progress_bar = tqdm(total=total_entries, desc="Processing Entries")
@@ -177,6 +182,9 @@ def process_data(data, output_csv):
             csv_writer.writeheader()
 
         for entry in data:
+            #####################
+            #counter = counter + 1
+
             title = entry.get('title', '')
             wiki_intro = entry.get('wiki_intro', '')
             generated_intro = entry.get('generated_intro', '')
@@ -216,7 +224,54 @@ def process_data(data, output_csv):
             existing_titles.add(sanitized_title)
             progress_bar.update(1)
 
+            ##################
+            #if counter > 3:
+                #break
+
     progress_bar.close()
+
+def process_entry(entry):
+    title = entry.get('title', '')
+    wiki_intro = entry.get('wiki_intro', '')
+    generated_intro = entry.get('generated_intro', '')
+
+    sanitized_title = sanitize_title(title)
+
+    if sanitized_title in existing_titles:
+        progress_bar.update(1)
+        return None
+
+    wiki_features = extract_features(wiki_intro)
+    generated_features = extract_features(generated_intro)
+
+    existing_titles.add(sanitized_title)
+    progress_bar.update(1)
+
+    return {
+        'Title': sanitized_title,
+        'Label': 'human',
+        'Feature1': wiki_features[0],
+        'Feature2': wiki_features[1],
+        # ... (other features)
+    }, {
+        'Title': sanitized_title,
+        'Label': 'ai',
+        'Feature1': generated_features[0],
+        'Feature2': generated_features[1],
+        # ... (other features)
+    }
+
+def process_data_parallel(data, output_csv):
+    with ProcessPoolExecutor() as executor:
+        results = list(executor.map(process_entry, data))
+        results = [result for result in results if result is not None]
+
+    with open(output_csv, 'a', newline='', encoding='utf-8') as csv_file:
+        csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+
+        for human_result, ai_result in results:
+            csv_writer.writerow(human_result)
+            csv_writer.writerow(ai_result)
 
 def ensure_output_directory(output):
     output_directory = os.path.dirname(output)
@@ -265,7 +320,9 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Process data and extract features.')
     parser.add_argument('-i', '--input', nargs='?', default='', help='Path to the input CSV file containing data')
     parser.add_argument('-o', '--output', nargs='?', default='', help='Full path and name of the output CSV file')
-    parser.add_argument('--download-dataset', action='store_true', help='Download and extract the GPT-wiki-intro dataset')
+    parser.add_argument('--download-dataset', action='store_false', help='Download and extract the GPT-wiki-intro dataset')
+    parser.add_argument('--multiprocess', action='store_false', help='Run the script in multiprocessing')
+    parser.add_argument('-o', '--output', nargs='?', default='', help='Full path and name of the output CSV file')
     return parser.parse_args()
 
 
@@ -297,9 +354,14 @@ def main():
 
     print("Input CSV loaded. Beginning Data Processing")
 
-    process_data(data, output)
+    if args.multiprocess:
+        print("Running multiprocessing...")
+        process_data_parallel(data, output)
+    else:
+        print("Running single thread processing")
+        process_data(data, output)
 
-    print("Process finished. Exiting...")
+    print("Process finished. Exiting")
 
 if __name__ == "__main__":
     main()
