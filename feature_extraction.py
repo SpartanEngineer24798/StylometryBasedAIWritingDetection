@@ -21,18 +21,19 @@ from zipfile import ZipFile
 import requests
 
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import Manager
 
 class PerplexityCalculator:
     STRIDE = 512
     NLP_MAX_LENGTH = 200000
 
     def __init__(self):
-        self._tokenizer = GPT2Tokenizer.from_pretrained(gpt2_model)
-        self._model = GPT2LMHeadModel.from_pretrained(gpt2_model)
+        self._tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+        self._model = GPT2LMHeadModel.from_pretrained('gpt2')
         self._max_length = self._model.config.n_positions
         self._device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self._model.to(self._device)
-        self._nlp = spacy.load(spacy_model)
+        self._nlp = spacy.load("en_core_web_trf")
         self._nlp.add_pipe("sentencizer")
 
         infixes = self._nlp.Defaults.infixes + ['`', "'", '"']
@@ -230,7 +231,8 @@ def process_data(data, output_csv):
 
     progress_bar.close()
 
-def process_entry(entry):
+def process_entry(entry_data):
+    entry, existing_titles = entry_data
     title = entry.get('title', '')
     wiki_intro = entry.get('wiki_intro', '')
     generated_intro = entry.get('generated_intro', '')
@@ -252,22 +254,31 @@ def process_entry(entry):
         'Label': 'human',
         'Feature1': wiki_features[0],
         'Feature2': wiki_features[1],
-        # ... (other features)
+        'Feature3': wiki_features[2],
+        'Feature4': wiki_features[3],
+        'Feature5': wiki_features[4],
+        'Feature6': wiki_features[5],
+        'Feature7': wiki_features[6]
     }, {
         'Title': sanitized_title,
         'Label': 'ai',
         'Feature1': generated_features[0],
         'Feature2': generated_features[1],
-        # ... (other features)
+        'Feature3': generated_features[2],
+        'Feature4': generated_features[3],
+        'Feature5': generated_features[4],
+        'Feature6': generated_features[5],
+        'Feature7': generated_features[6]
     }
 
-def process_data_parallel(data, output_csv):
+
+def process_data_parallel(data, output_csv, existing_titles):
     with ProcessPoolExecutor() as executor:
-        results = list(executor.map(process_entry, data))
+        results = list(executor.map(process_entry, [(entry, existing_titles) for entry in data]))
         results = [result for result in results if result is not None]
 
     with open(output_csv, 'a', newline='', encoding='utf-8') as csv_file:
-        csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        csv_writer = csv.DictWriter(csv_file, fieldnames=['Title', 'Label', 'Feature1', 'Feature2', 'Feature3', 'Feature4', 'Feature5', 'Feature6', 'Feature7'])
 
         for human_result, ai_result in results:
             csv_writer.writerow(human_result)
@@ -289,13 +300,6 @@ def check_file_existence(input):
     if not os.path.exists(input):
         print(f"Error: The input file '{input}' does not exist. Please provide the file or call the program again with the argument 'download-dataset' ")
         exit(1)
-
-def initialize():
-    nltk.download('punkt')
-    global spacy_model
-    spacy_model = "en_core_web_trf"
-    global gpt2_model
-    gpt2_model = "gpt2"
 
 def download_and_extract_gpt_wiki_intro(output_path):
     url = "https://huggingface.co/datasets/aadityaubhat/GPT-wiki-intro/resolve/main/GPT-wiki-intro.csv.zip?download=true"
@@ -320,17 +324,14 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Process data and extract features.')
     parser.add_argument('-i', '--input', nargs='?', default='', help='Path to the input CSV file containing data')
     parser.add_argument('-o', '--output', nargs='?', default='', help='Full path and name of the output CSV file')
-    parser.add_argument('--download-dataset', action='store_false', help='Download and extract the GPT-wiki-intro dataset')
-    parser.add_argument('--multiprocess', action='store_false', help='Run the script in multiprocessing')
-    parser.add_argument('-o', '--output', nargs='?', default='', help='Full path and name of the output CSV file')
+    parser.add_argument('--download-dataset', action='store_true', help='Download and extract the GPT-wiki-intro dataset')
+    parser.add_argument('--multiprocess', action='store_true', help='Run the script in multiprocessing')
     return parser.parse_args()
-
 
 def main():
     args = parse_arguments()
 
-    initialize()
-    print("Initializing...")
+    nltk.download('punkt')
 
     if args.download_dataset:
         download_and_extract_gpt_wiki_intro(os.path.dirname(args.output))
@@ -356,7 +357,10 @@ def main():
 
     if args.multiprocess:
         print("Running multiprocessing...")
-        process_data_parallel(data, output)
+        with Manager() as manager:
+            existing_titles = manager.list()
+
+            process_data_parallel(data, output, existing_titles)
     else:
         print("Running single thread processing")
         process_data(data, output)
